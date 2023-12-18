@@ -37,12 +37,30 @@ class Config:
     def get_client_refresh_token():
         return os.getenv('GOOGLE_CLIENT_REFRESH_TOKEN')
 
+    @staticmethod
+    def get_client_redirect_uri():
+        return os.getenv('GOOGLE_CLIENT_REDIRECT_URI')
+
 
 class GoogleClient:
 
     def __init__(self):
         self.access_token = None
         self.access_token_expires = None
+
+    def fetch_refresh_token(self, code):
+        response = requests.request('POST', 'https://oauth2.googleapis.com/token', data={
+            'code': code,
+            'client_id': Config.get_client_id(),
+            'client_secret': Config.get_client_secret(),
+            'grant_type': 'authorization_code',
+            'scope': Config.get_scope(),
+            'redirect_uri': Config.get_client_redirect_uri()
+        })
+        data = json.loads(response.content)
+        print(data)
+        if 'error' in data:
+            raise Exception(f"{data['error']}: {data['error_description']}")
 
     def fetch_access_token(self):
         print(f"Fetching new access token...")
@@ -228,12 +246,19 @@ class MediaItemDownloader:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='Google Photos Backup', description='Backup Google Photos to disc')
-    parser.add_argument('output_dir')
+    parser.add_argument('output_dir', nargs='?', default=os.getcwd())
+    parser.add_argument('-f', '--fetch_refresh_token', dest='code', nargs=1)
+    parser.add_argument('-g', '--generate_uri', dest='generate_uri', action='store_true')
     args = parser.parse_args()
 
     Config.read()
     client = GoogleClient()
-    service = MediaItemService(client)
-    print(f"Starting downloading...")
-    service.download_all(args.output_dir)
-    print(f"Finished downloading.")
+    if args.generate_uri:
+        print(f"URI: https://accounts.google.com/o/oauth2/v2/auth?redirect_uri={Config.get_client_redirect_uri()}&prompt=consent&response_type=code&client_id={Config.get_client_id()}&scope={Config.get_scope()}&access_type=offline")
+    elif args.code is not None and len(args.code) == 1:
+        client.fetch_refresh_token(args.code[0])
+    else:
+        service = MediaItemService(client)
+        print(f"Starting downloading...")
+        service.download_all(args.output_dir)
+        print(f"Finished downloading.")
